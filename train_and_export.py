@@ -37,6 +37,7 @@ img_rows, img_cols = 28, 28
 x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, 1)
 x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, 1)
 input_shape = (img_rows, img_cols, 1)
+print(f'input_shape={input_shape}')
 
 x_train = x_train.astype('float32')
 x_test = x_test.astype('float32')
@@ -59,7 +60,6 @@ model = tf.keras.models.Sequential([
     tf.keras.layers.Dense(128, activation='relu'),
     tf.keras.layers.Dropout(0.5),
     tf.keras.layers.Dense(num_classes, activation='softmax')])
-print(model.input.name)
 
 model.compile(loss=tf.keras.losses.categorical_crossentropy,
               optimizer=tf.keras.optimizers.Adadelta(),
@@ -72,8 +72,9 @@ score = model.evaluate(x_test, y_test, verbose=0)
 print('Test loss:', score[0])
 print('Test accuracy:', score[1])
 
+print(f'input_layer_name={model.input.name}')
 output_layer_name = model.output.name.split(':')[0]
 print(f'output_layer_name={output_layer_name}')
 # Now we save the current weights, in a more real scenario we would reload a checkpoint
 # containing the best weights according to som measure of goodness.
-my_freeze_graph([output_layer_name], '/tmp')
+my_freeze_graph([output_layer_name], destination='/tmp', name="frozen_model.pb")
