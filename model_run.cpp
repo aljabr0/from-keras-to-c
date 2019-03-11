@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <string.h>
 #include <fstream>
+#include <stdint.h>
 
 static TF_Buffer *read_tf_buffer_from_file(const char* file);
 
@@ -36,29 +37,19 @@ namespace detail {
     class TFObjDeallocator;
 
     template<>
-    struct TFObjDeallocator<TF_Status> {
-        static void run(TF_Status *obj) { TF_DeleteStatus(obj); }
-    };
+    struct TFObjDeallocator<TF_Status> { static void run(TF_Status *obj) { TF_DeleteStatus(obj); }};
 
     template<>
-    struct TFObjDeallocator<TF_Graph> {
-        static void run(TF_Graph *obj) { TF_DeleteGraph(obj); }
-    };
+    struct TFObjDeallocator<TF_Graph> { static void run(TF_Graph *obj) { TF_DeleteGraph(obj); }};
 
     template<>
-    struct TFObjDeallocator<TF_Tensor> {
-        static void run(TF_Tensor *obj) { TF_DeleteTensor(obj); }
-    };
+    struct TFObjDeallocator<TF_Tensor> { static void run(TF_Tensor *obj) { TF_DeleteTensor(obj); }};
 
     template<>
-    struct TFObjDeallocator<TF_SessionOptions> {
-        static void run(TF_SessionOptions *obj) { TF_DeleteSessionOptions(obj); }
-    };
+    struct TFObjDeallocator<TF_SessionOptions> { static void run(TF_SessionOptions *obj) { TF_DeleteSessionOptions(obj); }};
 
     template<>
-    struct TFObjDeallocator<TF_Buffer> {
-        static void run(TF_Buffer *obj) { TF_DeleteBuffer(obj); }
-    };
+    struct TFObjDeallocator<TF_Buffer> { static void run(TF_Buffer *obj) { TF_DeleteBuffer(obj); }};
 
     template<>
     struct TFObjDeallocator<TF_ImportGraphDefOptions> {
@@ -97,11 +88,11 @@ public:
     typename TFObjMeta<TF_Graph>::UniquePtr graph;
     typename TFObjMeta<TF_Session>::UniquePtr session;
 
-    TF_Input inputs;
-    TF_Output outputs;
+    TF_Output inputs, outputs;
 };
 
 MySession *my_model_load(const char *filename, const char *input_name, const char *output_name){
+    printf("Loading model %s\n", filename);
     CStatus status;
 
     auto graph=tf_obj_unique_ptr(TF_NewGraph());
@@ -155,7 +146,7 @@ static TF_Buffer* read_tf_buffer_from_file(const char* file) {
     t.exceptions(std::ifstream::failbit | std::ifstream::badbit);
     t.seekg(0, std::ios::end);
     size_t size = t.tellg();
-    auto data = std::make_unique<char>(size);
+    auto data = std::make_unique<char[]>(size);
     t.seekg(0);
     t.read(data.get(), size);
 
@@ -166,8 +157,20 @@ static TF_Buffer* read_tf_buffer_from_file(const char* file) {
     return buf;
 }
 
+std::unique_ptr<float[]> ascii2tensor(const char *str){
+    auto size = strlen(str);
+    auto output = std::make_unique<float[]>(size);
+
+    float *dst_ptr=output.get();
+    for(const char *ptr=str;ptr < (str+size);ptr++){
+        *dst_ptr=(*ptr)=='0'?1.0:0;
+        dst_ptr++;
+    }
+    return output;
+}
+
 int main(){
-    auto session = std::unique_ptr<MySession>(my_model_load("/tmp/frozen_model.pb", "", ""));
+    auto session = std::unique_ptr<MySession>(my_model_load("/tmp/frozen_model.pb", "input", "output"));
 
     const char *str="0000000000000000000000000000"
                     "0000000000000000000000000000"
@@ -198,7 +201,29 @@ int main(){
                     "0000000000000000000000000000"
                     "0000000000000000000000000000";
 
+    float *input_buf=nullptr;   //TODO
+    size_t input_buf_size=0;    //TODO
+    int64_t input_shape[]={1, 28, 28, 1};
+    auto input_values = tf_obj_unique_ptr(
+            TF_NewTensor(TF_FLOAT, input_shape, 4, (void *)input_buf, input_buf_size, &dummy_deallocator, nullptr));
+    if(!input_values){
+        std::cerr << "Tensor creation failure" << std::endl;
+        return -1;
+    }
 
+    CStatus status;
+    TF_Tensor* inputs[]={input_values.get()};
+    TF_Tensor* outputs[1]={};
+    TF_SessionRun(session->session.get(), nullptr,
+            &session->inputs, inputs, 1,
+            &session->outputs, outputs, 1,
+            nullptr, 0, nullptr, status.ptr);
+    auto _output_holder = tf_obj_unique_ptr(outputs[0]);
+
+    if(status.failure()){
+        status.dump_error();
+        return -1;
+    }
 
 
     return 0;
