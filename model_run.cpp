@@ -12,6 +12,9 @@
 
 static TF_Buffer *read_tf_buffer_from_file(const char* file);
 
+/**
+ * A Wrapper for the C API status object.
+ */
 class CStatus{
 public:
     TF_Status *ptr;
@@ -19,10 +22,17 @@ public:
         ptr = TF_NewStatus();
     }
 
+    /**
+     * Dump the current error message.
+     */
     void dump_error()const{
         std::cerr << "TF status error: " << TF_Message(ptr) << std::endl;
     }
 
+    /**
+     * Return a boolean indicating whether there was a failure condition.
+     * @return
+     */
     inline bool failure()const{
         return TF_GetCode(ptr) != TF_OK;
     }
@@ -91,6 +101,13 @@ public:
     TF_Output inputs, outputs;
 };
 
+/**
+ * Load a GraphDef from a provided file.
+ * @param filename: The file containing the protobuf encoded GraphDef
+ * @param input_name: The name of the input placeholder
+ * @param output_name: The name of the output tensor
+ * @return
+ */
 MySession *my_model_load(const char *filename, const char *input_name, const char *output_name){
     printf("Loading model %s\n", filename);
     CStatus status;
@@ -136,11 +153,32 @@ MySession *my_model_load(const char *filename, const char *input_name, const cha
     return session.release();
 }
 
+/**
+ * Deallocator for TF_Buffer data.
+ * @tparam T
+ * @param data
+ * @param length
+ */
 template<class T> static void free_cpp_array(void* data, size_t length){
     delete []((T *)data);
 }
-static void dummy_deallocator(void* data, size_t length, void* arg){}
 
+/**
+ * Deallocator for TF_NewTensor data.
+ * @tparam T
+ * @param data
+ * @param length
+ * @param arg
+ */
+template<class T> static void cpp_array_deallocator(void* data, size_t length, void* arg){
+    delete []((T *)data);
+}
+
+/**
+ * Read the entire content of a file and return it as a TF_Buffer.
+ * @param file: The file to be loaded.
+ * @return
+ */
 static TF_Buffer* read_tf_buffer_from_file(const char* file) {
     std::ifstream t(file);
     t.exceptions(std::ifstream::failbit | std::ifstream::badbit);
@@ -157,57 +195,89 @@ static TF_Buffer* read_tf_buffer_from_file(const char* file) {
     return buf;
 }
 
-std::unique_ptr<float[]> ascii2tensor(const char *str){
-    auto size = strlen(str);
-    auto output = std::make_unique<float[]>(size);
+#define MY_TENSOR_SHAPE_MAX_DIM 16
+struct TensorShape{
+    int64_t values[MY_TENSOR_SHAPE_MAX_DIM];
+    int dim;
 
-    float *dst_ptr=output.get();
-    for(const char *ptr=str;ptr < (str+size);ptr++){
-        *dst_ptr=(*ptr)=='0'?1.0:0;
-        dst_ptr++;
+    int64_t size()const{
+        assert(dim>=0);
+        int64_t v=1;
+        for(int i=0;i<dim;i++)v*=values[i];
+        return v;
     }
-    return output;
+};
+
+TF_Tensor *ascii2tensor(const char *str, const TensorShape &shape){
+    auto size = strlen(str);
+    if(size!=shape.size()){
+        //TODO exception
+    }
+
+    auto output_array = std::make_unique<float[]>(size);
+    {
+        float *dst_ptr = output_array.get();
+        for(const char *ptr = str; ptr < (str + size); ptr++){
+            *dst_ptr = float((*ptr) == '0' ? 0. : 1.);
+            dst_ptr++;
+        }
+    }
+
+    auto output = tf_obj_unique_ptr(TF_NewTensor(TF_FLOAT,
+            shape.values, shape.dim,
+            (void *)output_array.get(), size*sizeof(float), cpp_array_deallocator<float>, nullptr));
+    if(output){
+        // The ownership has been successfully transferred
+        output_array.release();
+    }
+    return output.release();
 }
 
 int main(){
-    auto session = std::unique_ptr<MySession>(my_model_load("/tmp/frozen_model.pb", "input", "output"));
+    /*
+     * Load the frozen model, the input/output tensors names must be provided.
+     * input_layer_name=conv2d_input:0
+     * output_layer_name=dense_1/Softmax
+     */
+    auto session = std::unique_ptr<MySession>(my_model_load("/tmp/frozen_model.pb", "conv2d_input", "dense_1/Softmax"));
 
+    /*
+     * For simplicity we encode a handwritten number in ascii art. It will be
+     * subsequently converted into a tensor for prediction.
+     */
     const char *str="0000000000000000000000000000"
                     "0000000000000000000000000000"
                     "0000000000000000000000000000"
                     "0000000000000000000000000000"
                     "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
-                    "0000000000000000000000000000"
+                    "0000000000001111111111110000"
+                    "0000000011111111111111110000"
+                    "0000000111111111111111100000"
+                    "0000000111111111110000000000"
+                    "0000000011111110110000000000"
+                    "0000000001111100000000000000"
+                    "0000000000011110000000000000"
+                    "0000000000011110000000000000"
+                    "0000000000001111110000000000"
+                    "0000000000000111111000000000"
+                    "0000000000000011111100000000"
+                    "0000000000000001111100000000"
+                    "0000000000000000011110000000"
+                    "0000000000000011111110000000"
+                    "0000000000001111111100000000"
+                    "0000000000111111111000000000"
+                    "0000000011111111110000000000"
+                    "0000001111111111000000000000"
+                    "0000111111111100000000000000"
+                    "0000111111110000000000000000"
                     "0000000000000000000000000000"
                     "0000000000000000000000000000"
                     "0000000000000000000000000000";
 
-    float *input_buf=nullptr;   //TODO
-    size_t input_buf_size=0;    //TODO
-    int64_t input_shape[]={1, 28, 28, 1};
-    auto input_values = tf_obj_unique_ptr(
-            TF_NewTensor(TF_FLOAT, input_shape, 4, (void *)input_buf, input_buf_size, &dummy_deallocator, nullptr));
+    TensorShape input_shape={{1, 28, 28, 1}, 4};
+    auto input_values = tf_obj_unique_ptr(ascii2tensor(str, input_shape));
     if(!input_values){
-        std::cerr << "Tensor creation failure" << std::endl;
+        std::cerr << "Tensor creation failure." << std::endl;
         return -1;
     }
 
@@ -225,6 +295,22 @@ int main(){
         return -1;
     }
 
+    TF_Tensor &output = *outputs[0];
+    if(TF_TensorType(&output) != TF_FLOAT){
+        std::cerr << "Error, unexpected output tensor type." << std::endl;
+        return -1;
+    }
+
+    {
+        std::cout << "Prediction output: " << std::endl;
+        size_t output_size = TF_TensorByteSize(&output) / sizeof(float);
+        auto output_array = (const float *)TF_TensorData(&output);
+        for(int i = 0; i < output_size; i++){
+            std::cout << '[' << i << "]=" << output_array[i] << ' ';
+            if((i+1)%10==0) std::cout << std::endl;
+        }
+        std::cout << std::endl;
+    }
 
     return 0;
 }

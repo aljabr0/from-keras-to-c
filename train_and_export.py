@@ -3,7 +3,7 @@ import tensorflow as tf
 
 def my_freeze_graph(output_node_names, destination, name="frozen_model.pb"):
     """
-    Freeze the current graph alongside its weights into a protobuf file.
+    Freeze the current graph alongside its weights (converted to constants) into a protobuf file.
     :param output_node_names: The name of the output node names we are interested in
     :param destination: Destination folder or remote service (eg. gs://)
     :param name: Filename of the saved graph
@@ -22,6 +22,8 @@ def my_freeze_graph(output_node_names, destination, name="frozen_model.pb"):
             output_node_names=output_node_names)
 
         tf.train.write_graph(graph_or_graph_def=output_graph_def, logdir=destination, name=name, as_text=False)
+
+    tf.keras.backend.clear_session()
 
 
 batch_size = 128
