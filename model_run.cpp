@@ -208,6 +208,12 @@ struct TensorShape{
     }
 };
 
+/**
+ * Convert an ascii string into a tensor. The '0's are mapped to 0 whereas all the others are mapped to 1.
+ * @param str: The source string
+ * @param shape: The required shape of the tensor, this must be compatible with the size of the input string.
+ * @return A tensor with dtype = tf.float32
+ */
 TF_Tensor *ascii2tensor(const char *str, const TensorShape &shape){
     auto size = strlen(str);
     if(size!=shape.size()){
@@ -274,7 +280,7 @@ int main(){
                     "0000000000000000000000000000"
                     "0000000000000000000000000000";
 
-    TensorShape input_shape={{1, 28, 28, 1}, 4};
+    TensorShape input_shape={{1, 28, 28, 1}, 4};    // python equivalent: input_shape = (1, 28, 28, 1)
     auto input_values = tf_obj_unique_ptr(ascii2tensor(str, input_shape));
     if(!input_values){
         std::cerr << "Tensor creation failure." << std::endl;
