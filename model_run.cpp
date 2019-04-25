@@ -180,7 +180,7 @@ template<class T> static void cpp_array_deallocator(void* data, size_t length, v
  * @return
  */
 static TF_Buffer* read_tf_buffer_from_file(const char* file) {
-    std::ifstream t(file);
+    std::ifstream t(file, std::ifstream::binary);
     t.exceptions(std::ifstream::failbit | std::ifstream::badbit);
     t.seekg(0, std::ios::end);
     size_t size = t.tellg();
